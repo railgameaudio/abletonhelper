@@ -1,0 +1,39 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# --- Node ---
+node_modules/
+frontend/dist/
+.vite/
+
+# --- App runtime state ---
+data/
+*.db
+*.sqlite3
+out/**
+!out/.gitkeep
+
+# --- OS ---
+.DS_Store
+
+# --- Ableton crud we never want ---
+Backup/
+*.als.bak
+Ableton Project Info/
+
+# =====================================================================
+# DELIBERATELY NOT IGNORED:
+#   templates/*.als   -- the Live template is INPUT, it must be committed
+#   songs/**/*.json   -- per-song manifests are source of truth
+# Large audio stems are handled by Git LFS, not by ignoring them.
+# See docs/assets.md before adding any *.wav / *.aif rule here.
+# =====================================================================
+
+# TS incremental build state
+*.tsbuildinfo
