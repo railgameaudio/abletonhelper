@@ -53,6 +53,11 @@ Working and tested:
 - librosa backend — tempo 0.002% error, key correct, chords correct on
   the synthetic test; **sections weak** (5 found vs 6 true, boundaries
   off by up to 14 s)
+- verified on librosa 0.11.0 (py3.11) and 1.0.0 (py3.12). Tempo, key and
+  chords agree across both; 1.0.0 gets the beat count exactly right
+  (160/40 vs 161/41). Section *labels* differ between versions on
+  identical input — further evidence the librosa section path is not
+  trustworthy for performance use.
 - `als/inspect.py` — verified to distinguish BEATS from SECONDS encoding
 - FastAPI: import -> analyze job -> poll -> persisted result, exercised
   end to end
