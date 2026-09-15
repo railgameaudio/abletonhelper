@@ -54,6 +54,25 @@ def cmd_analyze(args) -> int:
     return 0
 
 
+def cmd_chords(args) -> int:
+    from .analysis.midi_chords import chords_from_midi, list_tracks
+
+    if args.tracks:
+        for t in list_tracks(args.path):
+            print(f"[{t['index']}] {t['name']!r}  notes={t['notes']}")
+        return 0
+
+    spans = chords_from_midi(args.path, track_filter=args.track,
+                             prefer_flats=args.flats)
+    if not spans:
+        print("No chords found. Try --tracks to see what is in the file, "
+              "then --track NAME to pick one.")
+        return 1
+    for c in spans:
+        print(f"   {c.chord:10s} {c.start:7.2f} -> {c.end:7.2f}")
+    return 0
+
+
 def cmd_backends(args) -> int:
     st = registry.status()
     for name, info in st.items():
@@ -80,6 +99,14 @@ def main(argv=None) -> int:
     p.add_argument("--json", action="store_true")
     p.add_argument("--out", help="write AnalysisResult JSON here")
     p.set_defaults(func=cmd_analyze)
+
+    p = sub.add_parser("chords", help="read chords from a MIDI file")
+    p.add_argument("path")
+    p.add_argument("--track", default="chord",
+                   help="only read tracks whose name contains this (default: chord)")
+    p.add_argument("--tracks", action="store_true", help="list tracks and exit")
+    p.add_argument("--flats", action="store_true", help="spell with flats")
+    p.set_defaults(func=cmd_chords)
 
     p = sub.add_parser("backends", help="what analysis backends are usable")
     p.set_defaults(func=cmd_backends)

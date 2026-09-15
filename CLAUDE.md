@@ -63,6 +63,10 @@ Working and tested:
   end to end
 - React UI: song library, analysis run, section timeline. Builds clean
   under strict TS.
+- MIDI chord import (`analysis/midi_chords.py`) — reads an authored chord
+  track out of a Logic-style multi-track export and overrides detected
+  chords. Track filtering is load-bearing, not cosmetic: reading every
+  track at once turns Am7 into C6. See docs/chords.md.
 
 Written but NOT verified:
 - `analysis/allin1_backend.py` — follows the documented allin1 API; the
@@ -79,7 +83,9 @@ Deliberately unfinished:
 1. Add `templates/Template.als`, run `abletonhelper inspect` on it, and
    finish the builder placement pass against the measured layout.
 2. Decide on allin1 (docs/analysis.md has the cost breakdown).
-3. Setlist -> arrangement: section markers become Live locators.
+3. Setlist -> arrangement: section markers become Live locators, and
+   chord spans become a chord lane. Rendering choice is open — see
+   docs/chords.md.
 4. Project-folder export with relative sample paths — required before
    this can ever be hosted. See docs/architecture.md.
 
@@ -92,3 +98,4 @@ Deliberately unfinished:
     python -m abletonhelper.cli backends
     python -m abletonhelper.cli analyze songs/<song>/
     python -m abletonhelper.cli inspect templates/Template.als
+    python -m abletonhelper.cli chords songs/<song>/Chords.mid --tracks
