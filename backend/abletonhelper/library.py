@@ -126,11 +126,12 @@ def analyze_song(song_id: str, backend: str | None = None,
         if progress:
             progress(0.85, f"reading chords from {chord_midi.name}")
         try:
-            from .analysis.midi_chords import chords_from_midi
-            authored = chords_from_midi(chord_midi, track_filter="chord")
-            if not authored:                    # no track matched the filter
-                authored = chords_from_midi(chord_midi)
+            from .analysis.midi_chords import chords_from_midi, explain
+            # Track selection is automatic: a lone chord track needs no
+            # name match, and a multi-track export is narrowed by name.
+            authored = chords_from_midi(chord_midi)
             if authored:
+                result.meta["chords_track_choice"] = explain(chord_midi)
                 result.chords = authored
                 result.meta["chords_source"] = str(chord_midi)
                 result.meta["chords_authored"] = True

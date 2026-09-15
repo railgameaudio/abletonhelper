@@ -62,7 +62,10 @@ def cmd_chords(args) -> int:
             print(f"[{t['index']}] {t['name']!r}  notes={t['notes']}")
         return 0
 
+    from .analysis.midi_chords import explain
+    print(explain(args.path, args.track, args.all_tracks))
     spans = chords_from_midi(args.path, track_filter=args.track,
+                             all_tracks=args.all_tracks,
                              prefer_flats=args.flats)
     if not spans:
         print("No chords found. Try --tracks to see what is in the file, "
@@ -102,8 +105,11 @@ def main(argv=None) -> int:
 
     p = sub.add_parser("chords", help="read chords from a MIDI file")
     p.add_argument("path")
-    p.add_argument("--track", default="chord",
-                   help="only read tracks whose name contains this (default: chord)")
+    p.add_argument("--track", default=None,
+                   help="only read tracks whose name contains this "
+                        "(default: pick automatically)")
+    p.add_argument("--all-tracks", action="store_true",
+                   help="read every track, even non-chord ones")
     p.add_argument("--tracks", action="store_true", help="list tracks and exit")
     p.add_argument("--flats", action="store_true", help="spell with flats")
     p.set_defaults(func=cmd_chords)

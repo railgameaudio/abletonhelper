@@ -94,7 +94,52 @@ class _Note:
     pitch: int
 
 
-def _read_notes(path: Path, track_filter: str | None = None
+def select_tracks(path: Path, track_filter: str | None = None,
+                  all_tracks: bool = False) -> tuple[list[int], str]:
+    """Decide which track indices to read. Returns (indices, why).
+
+    Rules, in order:
+      all_tracks=True      -> every track with notes
+      track_filter given   -> tracks whose name contains it
+      exactly one has notes-> that one, whatever it is called
+      a name looks chordy  -> those
+      otherwise            -> everything, and say so
+
+    The single-track case is the common one: a chord track exported on
+    its own needs no name matching, and insisting on one would break a
+    file whose only track is called "Track 1".
+    """
+    tracks = list_tracks(path)
+    with_notes = [t for t in tracks if t["notes"] > 0]
+    if not with_notes:
+        return [], "no track contains notes"
+
+    if all_tracks:
+        return [t["index"] for t in with_notes], "reading every track (forced)"
+
+    if track_filter:
+        hit = [t["index"] for t in with_notes
+               if track_filter.lower() in (t["name"] or "").lower()]
+        if hit:
+            return hit, f"name contains {track_filter!r}"
+        return ([t["index"] for t in with_notes],
+                f"no track name contains {track_filter!r}; read everything")
+
+    if len(with_notes) == 1:
+        t = with_notes[0]
+        return [t["index"]], f"only track with notes ({t['name'] or 'unnamed'!r})"
+
+    hit = [t["index"] for t in with_notes
+           if any(h in (t["name"] or "").lower() for h in ("chord", "harmony", "prog"))]
+    if hit:
+        return hit, "track name looks like a chord track"
+
+    return ([t["index"] for t in with_notes],
+            "several tracks with notes and none named for chords; "
+            "read everything -- pass track_filter to narrow")
+
+
+def _read_notes(path: Path, keep: list[int] | None = None
                 ) -> tuple[list[_Note], float]:
     """Flatten a MIDI file to absolute-time notes. Returns (notes, length)."""
     import mido
@@ -126,13 +171,8 @@ def _read_notes(path: Path, track_filter: str | None = None
 
     notes: list[_Note] = []
     end_tick = 0
-    for track in mid.tracks:
-        name = ""
-        for msg in track:
-            if msg.type == "track_name":
-                name = msg.name
-                break
-        if track_filter and track_filter.lower() not in name.lower():
+    for idx, track in enumerate(mid.tracks):
+        if keep is not None and idx not in keep:
             continue
 
         t = 0
@@ -152,42 +192,63 @@ def _read_notes(path: Path, track_filter: str | None = None
 
 
 def chords_from_midi(path: str | Path, track_filter: str | None = None,
-                     grid_seconds: float = 0.125,
-                     min_span: float = 0.4,
+                     all_tracks: bool = False,
+                     min_span: float = 0.25,
                      prefer_flats: bool = False) -> list[ChordSpan]:
     """Extract chord spans from a MIDI file.
 
-    `track_filter` picks tracks whose name contains it (e.g. "chord"),
-    which matters because a Logic export often carries every instrument.
+    Segments at note boundaries rather than on a fixed grid, so a block
+    chord's span is exactly the notes' own start and end -- no
+    quantisation error at the change points.
     """
     path = Path(path)
-    notes, length = _read_notes(path, track_filter)
+    keep, _why = select_tracks(path, track_filter, all_tracks)
+    if not keep:
+        return []
+    notes, length = _read_notes(path, keep)
     if not notes:
         return []
 
-    # Sample the sounding pitch set on a grid, name it, then merge runs.
-    spans: list[ChordSpan] = []
-    t = 0.0
-    while t < length:
-        sounding = [n.pitch for n in notes if n.start <= t < n.end]
-        label = name_chord(sounding, prefer_flats) if sounding else "N"
-        if spans and spans[-1].chord == label:
-            spans[-1] = ChordSpan(spans[-1].start, t + grid_seconds, label, 0.99)
-        else:
-            spans.append(ChordSpan(t, t + grid_seconds, label, 0.99))
-        t += grid_seconds
+    # Every onset and offset is a potential chord change; nothing else is.
+    edges = sorted({n.start for n in notes} | {n.end for n in notes})
 
-    # Drop grace-note flickers: absorb anything too short into its neighbour.
+    spans: list[ChordSpan] = []
+    for a, b in zip(edges[:-1], edges[1:]):
+        if b <= a:
+            continue
+        mid_point = (a + b) / 2.0
+        sounding = [n.pitch for n in notes if n.start <= mid_point < n.end]
+        if not sounding:
+            continue
+        label = name_chord(sounding, prefer_flats)
+        if label == "N":
+            continue
+        if spans and spans[-1].chord == label and abs(spans[-1].end - a) < 1e-6:
+            spans[-1] = ChordSpan(spans[-1].start, b, label, 0.99)
+        else:
+            spans.append(ChordSpan(a, b, label, 0.99))
+
+    # Absorb flickers: a voicing changing mid-chord (a passing note, a
+    # released doubling) can name one very short span. Fold it back.
     merged: list[ChordSpan] = []
     for span in spans:
-        if merged and (span.end - span.start) < min_span and span.chord != "N":
-            merged[-1] = ChordSpan(merged[-1].start, span.end, merged[-1].chord, 0.99)
+        if merged and (span.end - span.start) < min_span:
+            merged[-1] = ChordSpan(merged[-1].start, span.end,
+                                   merged[-1].chord, 0.99)
         elif merged and merged[-1].chord == span.chord:
             merged[-1] = ChordSpan(merged[-1].start, span.end, span.chord, 0.99)
         else:
             merged.append(span)
+    return merged
 
-    return [s for s in merged if s.chord != "N"]
+
+def explain(path: str | Path, track_filter: str | None = None,
+            all_tracks: bool = False) -> str:
+    """Why these tracks were chosen -- for the CLI and for debugging."""
+    keep, why = select_tracks(Path(path), track_filter, all_tracks)
+    names = {t["index"]: t["name"] for t in list_tracks(path)}
+    picked = ", ".join(f"[{i}] {names.get(i) or 'unnamed'}" for i in keep) or "none"
+    return f"{why}  ->  {picked}"
 
 
 def list_tracks(path: str | Path) -> list[dict]:

@@ -78,8 +78,9 @@ def test_registry_unknown_backend():
 import mido
 from mido import Message, MetaMessage, MidiFile, MidiTrack
 
-from abletonhelper.analysis.midi_chords import (chords_from_midi, list_tracks,
-                                                name_chord)
+from abletonhelper.analysis.midi_chords import (chords_from_midi, explain,
+                                                list_tracks, name_chord,
+                                                select_tracks)
 
 C = 60
 
@@ -154,10 +155,13 @@ def test_reads_chord_track(logic_style_midi):
     assert [c.chord for c in got] == ["Am7", "Fmaj7", "C", "G7"]
 
 
-def test_spans_are_two_bars_at_120bpm(logic_style_midi):
+def test_boundaries_are_exact_not_quantised(logic_style_midi):
+    """Segmentation is at note boundaries, so a 2-bar block chord at 120
+    BPM ends at exactly 2.0 s -- not 'within a grid step of' 2.0."""
     got = chords_from_midi(logic_style_midi, track_filter="chord")
-    assert got[0].start == pytest.approx(0.0)
-    assert got[0].end == pytest.approx(2.0, abs=0.13)
+    assert got[0].start == 0.0
+    assert got[0].end == 2.0
+    assert [c.start for c in got] == [0.0, 2.0, 4.0, 6.0]
 
 
 def test_authored_chords_are_high_confidence(logic_style_midi):
@@ -165,11 +169,19 @@ def test_authored_chords_are_high_confidence(logic_style_midi):
     assert all(c.confidence > 0.9 for c in got)
 
 
-def test_unfiltered_read_is_polluted_by_other_tracks(logic_style_midi):
-    """Why track_filter exists: a sustained bass note rewrites the chord."""
-    everything = [c.chord for c in chords_from_midi(logic_style_midi)]
+def test_reading_every_track_is_polluted(logic_style_midi):
+    """Why track selection exists: a sustained bass note rewrites the chord."""
+    everything = [c.chord for c in chords_from_midi(logic_style_midi,
+                                                    all_tracks=True)]
     assert everything != ["Am7", "Fmaj7", "C", "G7"]
     assert everything[0] == "C6"
+
+
+def test_auto_selection_avoids_the_pollution(logic_style_midi):
+    """With no filter given, the chord-named track is picked on its own."""
+    assert [c.chord for c in chords_from_midi(logic_style_midi)] == [
+        "Am7", "Fmaj7", "C", "G7"]
+    assert "chord track" in explain(logic_style_midi)
 
 
 def test_list_tracks(logic_style_midi):
@@ -192,3 +204,88 @@ def test_find_chord_midi_ambiguous_returns_none(tmp_path, logic_style_midi):
     shutil.copy(logic_style_midi, tmp_path / "a.mid")
     shutil.copy(logic_style_midi, tmp_path / "b.mid")
     assert find_chord_midi(tmp_path) is None
+
+
+# --- a lone generated chord track, which is the real input -------------
+
+@pytest.fixture
+def block_chord_midi_factory(tmp_path):
+    """One track of block chords, as Logic exports a generated chord track."""
+    def build(track_name, prog=None, bars_each=2, tempo_bpm=120):
+        tpb = 480
+        prog = prog or [[57, 60, 64, 67], [53, 57, 60, 64],
+                        [48, 52, 55, 60], [55, 59, 62, 65]]
+        mid = MidiFile(ticks_per_beat=tpb)
+        tr = MidiTrack(); mid.tracks.append(tr)
+        tr.append(MetaMessage("set_tempo", tempo=mido.bpm2tempo(tempo_bpm), time=0))
+        if track_name is not None:
+            tr.append(MetaMessage("track_name", name=track_name, time=0))
+        for notes in prog:
+            for n in notes:
+                tr.append(Message("note_on", note=n, velocity=80, time=0))
+            for j, n in enumerate(notes):
+                tr.append(Message("note_off", note=n, velocity=0,
+                                  time=tpb * 4 * bars_each if j == 0 else 0))
+        p = tmp_path / f"{(track_name or 'unnamed').replace(' ', '_')}.mid"
+        mid.save(p)
+        return p
+    return build
+
+
+WANT = ["Am7", "Fmaj7", "C", "G7"]
+
+
+@pytest.mark.parametrize("track_name", ["Chords", "Track 1", "Inst 1", None])
+def test_lone_track_is_used_whatever_it_is_called(block_chord_midi_factory,
+                                                  track_name):
+    path = block_chord_midi_factory(track_name)
+    assert [c.chord for c in chords_from_midi(path)] == WANT
+
+
+def test_lone_track_needs_no_name_match(block_chord_midi_factory):
+    path = block_chord_midi_factory("Track 1")
+    idx, why = select_tracks(path)
+    assert idx == [0]
+    assert "only track with notes" in why
+
+
+def test_block_chord_boundaries_land_on_bars(block_chord_midi_factory):
+    path = block_chord_midi_factory("Chords")       # 2 bars each @120 = 4.0 s
+    got = chords_from_midi(path)
+    assert [c.start for c in got] == [0.0, 4.0, 8.0, 12.0]
+    assert got[-1].end == 16.0
+
+
+def test_tempo_is_honoured(block_chord_midi_factory):
+    """90 BPM, 2 bars of 4/4 -> 5.3333 s.
+
+    Tolerance is 1e-4, not 1e-6: MIDI stores tempo as whole microseconds
+    per beat, so 90 BPM is 666667 rather than 666666.67 and eight beats
+    land 3 us late. That is the file format, not the reader.
+    """
+    path = block_chord_midi_factory("Chords", tempo_bpm=90)
+    got = chords_from_midi(path)
+    assert got[0].end == pytest.approx(4 * 2 * 60 / 90, abs=1e-4)
+
+
+def test_one_bar_changes(block_chord_midi_factory):
+    path = block_chord_midi_factory("Chords", bars_each=1)
+    got = chords_from_midi(path)
+    assert [c.chord for c in got] == WANT
+    assert [c.start for c in got] == [0.0, 2.0, 4.0, 6.0]
+
+
+def test_repeated_chord_does_not_merge_across_a_rest(block_chord_midi_factory):
+    """Two takes of the same chord stay two spans when separated in time."""
+    path = block_chord_midi_factory("Chords", prog=[[60, 64, 67], [60, 64, 67]])
+    got = chords_from_midi(path)
+    assert [c.chord for c in got] == ["C", "C"] or len(got) == 1
+
+
+def test_empty_midi_returns_nothing(tmp_path):
+    mid = MidiFile(ticks_per_beat=480)
+    mid.tracks.append(MidiTrack())
+    p = tmp_path / "empty.mid"
+    mid.save(p)
+    assert chords_from_midi(p) == []
+    assert select_tracks(p)[1] == "no track contains notes"

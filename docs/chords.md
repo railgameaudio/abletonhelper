@@ -28,20 +28,36 @@ Naming it with `chord`, `harmony` or `prog` is what makes it get found. A
 folder with exactly one `.mid` also works. Two unnamed MIDI files is
 ambiguous and the scanner takes neither, rather than guessing wrong.
 
-## Track filtering matters
+## Which track gets read
 
-Logic exports **every** track into one MIDI file. Reading all of them at
-once is actively wrong — a sustained bass note rewrites the harmony:
+Selection is automatic, in this order:
+
+1. `--all-tracks` — everything, forced.
+2. `--track NAME` — tracks whose name contains `NAME`.
+3. **Exactly one track has notes → that one, whatever it is called.**
+   This is the common case for a generated chord track exported on its
+   own, and it works for a track named `Track 1` or with no name at all.
+4. A track named `chord` / `harmony` / `prog` → those.
+5. Otherwise everything, and the reason says so.
+
+`explain()` and the CLI print which rule fired, so a surprising result is
+traceable rather than mysterious.
+
+## Track filtering matters when there are several
+
+If you export the chord track on its own, rule 3 handles it and there is
+nothing to configure. It matters when a file carries several tracks:
+reading them together is not merely noisier, it is wrong. A sustained
+bass note rewrites the harmony:
 
 ```
 all tracks:          C6    Fmaj7/C   C   G7/C
 filtered to chords:  Am7   Fmaj7     C   G7
 ```
 
-Same file. The first reading is garbage. That is why extraction defaults
-to `track_filter="chord"` and only falls back to reading everything when
-no track name matches. There is a regression test pinning this exact
-behaviour.
+Same file. The first reading is garbage — and it is what you get with
+`--all-tracks`. A regression test pins that `C6` so the failure cannot
+come back silently.
 
 Check what is in a file before trusting it:
 
@@ -58,9 +74,11 @@ chords (`C/E`, `C/G`). `--flats` spells `Db` instead of `C#`.
 
 Scoring balances matched tones against missing and extra ones, with a
 small bonus for root position and a preference for simpler spellings on
-ties. It names a chord for whatever is sounding on a 1/8-second grid,
-merges equal neighbours, and absorbs anything under 0.4 s so passing
-notes do not become chords.
+ties. Segmentation is at note boundaries, not on a fixed grid, so a block
+chord's span is exactly its own start and end — a 2-bar chord at 120 BPM
+reports `0.0 -> 4.0`, not "within a grid step of 4.0". Equal neighbours
+merge, and anything under 0.25 s is absorbed so a released doubling or a
+passing note does not become its own chord.
 
 ## Rendering a chord lane into Live
 
