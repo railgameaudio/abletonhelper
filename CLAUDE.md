@@ -63,6 +63,11 @@ Working and tested:
   end to end
 - React UI: song library, analysis run, section timeline. Builds clean
   under strict TS.
+- Authored inputs override detection (`analysis/sections.py`,
+  `analysis/lyrics.py`): `sections.txt` or MIDI markers for arrangement,
+  `.lrc` for timed lyrics. Authored data ships at confidence 1.0.
+  Verified end to end: authored sections hit 6/6 exact where detection
+  managed 5/6 with 14 s errors. See docs/song-folder.md.
 - MIDI chord import (`analysis/midi_chords.py`) — reads an authored chord
   track and overrides detected chords. Track selection is automatic: a
   lone chord track is used whatever it is named. Segmentation is at note
@@ -84,7 +89,8 @@ Deliberately unfinished:
 
 1. Add `templates/Template.als`, run `abletonhelper inspect` on it, and
    finish the builder placement pass against the measured layout.
-2. Decide on allin1 (docs/analysis.md has the cost breakdown).
+2. allin1 is now optional, not needed: hand-marked sections beat what it
+   would detect. Only worth installing for songs nobody will mark up.
 3. Setlist -> arrangement: section markers become Live locators, and
    chord spans become a chord lane. Rendering choice is open — see
    docs/chords.md.
@@ -94,6 +100,7 @@ Deliberately unfinished:
 ## Commands
 
     make dev            # API on :8000 and UI on :5173
+    make serve          # API on 0.0.0.0 so phones on the LAN can reach it
     make api            # API only
     make check          # import checks, TS build, smoke test
 

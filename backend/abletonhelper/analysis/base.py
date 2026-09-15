@@ -22,12 +22,34 @@ SCHEMA_VERSION = 1
 
 @dataclass(frozen=True)
 class Section:
-    """A functional span of the song: intro / verse / chorus / ..."""
+    """A functional span of the song: intro / verse / chorus / ...
+
+    `label` is canonical (see CANONICAL_LABELS) so colour-coding and the
+    setlist logic can rely on it. `name` keeps what the author actually
+    wrote -- "Verse 1", "Chorus (double)" -- for display in Live, and is
+    empty for detected sections, which have no name to preserve.
+    """
 
     start: float
     end: float
     label: str
     confidence: float = 0.0
+    name: str = ""
+
+    @property
+    def display(self) -> str:
+        return self.name or self.label
+
+    @property
+    def duration(self) -> float:
+        return self.end - self.start
+
+
+@dataclass(frozen=True)
+class LyricLine:
+    start: float
+    end: float
+    text: str
 
     @property
     def duration(self) -> float:
@@ -58,6 +80,7 @@ class AnalysisResult:
     downbeats: list[float] = field(default_factory=list)
     sections: list[Section] = field(default_factory=list)
     chords: list[ChordSpan] = field(default_factory=list)
+    lyrics: list[LyricLine] = field(default_factory=list)
 
     # Free-form backend diagnostics; never load-bearing.
     meta: dict = field(default_factory=dict)
@@ -79,6 +102,7 @@ class AnalysisResult:
         d = dict(d)
         d["sections"] = [Section(**s) for s in d.get("sections", [])]
         d["chords"] = [ChordSpan(**c) for c in d.get("chords", [])]
+        d["lyrics"] = [LyricLine(**line) for line in d.get("lyrics", [])]
         d.pop("schema_version", None)
         return cls(**d)
 
@@ -87,6 +111,12 @@ class AnalysisResult:
         return cls.from_dict(json.loads(Path(path).read_text()))
 
     # -- convenience --------------------------------------------------
+
+    def lyric_at(self, t: float) -> LyricLine | None:
+        for line in self.lyrics:
+            if line.start <= t < line.end:
+                return line
+        return None
 
     def section_at(self, t: float) -> Section | None:
         for s in self.sections:

@@ -1,6 +1,6 @@
 PY := PYTHONPATH=backend python3
 
-.PHONY: dev api ui check test clean
+.PHONY: dev api serve ui check test clean
 
 dev:
 	@echo "API :8000   UI :5173"
@@ -9,6 +9,12 @@ dev:
 
 api:
 	$(PY) -m uvicorn abletonhelper.main:app --reload --port 8000
+
+# Bind to every interface so phones and tablets on the same network can
+# open it. Localhost-only is the default on purpose; this is opt-in.
+serve:
+	@echo "Others on this network: http://$$(ipconfig getifaddr en0 2>/dev/null || hostname -I 2>/dev/null | awk '{print $$1}'):8000"
+	$(PY) -m uvicorn abletonhelper.main:app --host 0.0.0.0 --port 8000
 
 ui:
 	cd frontend && npm run dev

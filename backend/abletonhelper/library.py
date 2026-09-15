@@ -120,8 +120,24 @@ def analyze_song(song_id: str, backend: str | None = None,
         inp, backend=backend or settings.analysis_backend
     )
 
-    # An authored chord track beats anything detected from audio.
-    chord_midi = find_chord_midi(Path(song.folder))
+    folder = Path(song.folder)
+
+    # --- authored sections beat detected ones outright -----------------
+    # Detection is the weakest signal here; a marked arrangement is truth.
+    from .analysis.sections import (find_sections_file, parse_sections_file,
+                                    sections_from_midi_markers)
+    authored_sections: list = []
+    sec_file = find_sections_file(folder)
+    if sec_file is not None:
+        try:
+            authored_sections = parse_sections_file(sec_file, result.duration)
+            if authored_sections:
+                result.meta["sections_source"] = str(sec_file)
+        except Exception as e:
+            result.meta["sections_error"] = f"{type(e).__name__}: {e}"
+
+    # --- authored chords beat detected ones ---------------------------
+    chord_midi = find_chord_midi(folder)
     if chord_midi is not None:
         if progress:
             progress(0.85, f"reading chords from {chord_midi.name}")
@@ -137,6 +153,36 @@ def analyze_song(song_id: str, backend: str | None = None,
                 result.meta["chords_authored"] = True
         except Exception as e:
             result.meta["chord_midi_error"] = f"{type(e).__name__}: {e}"
+
+        # Logic writes arrangement markers into the MIDI export. Use them
+        # only when no explicit sections file already won.
+        if not authored_sections:
+            try:
+                marked = sections_from_midi_markers(chord_midi, result.duration)
+                if marked:
+                    authored_sections = marked
+                    result.meta["sections_source"] = f"{chord_midi} (MIDI markers)"
+            except Exception as e:
+                result.meta["section_marker_error"] = f"{type(e).__name__}: {e}"
+
+    if authored_sections:
+        result.sections = authored_sections
+        result.meta["sections_authored"] = True
+
+    # --- timed lyrics, if an .lrc is present --------------------------
+    from .analysis.lyrics import find_lrc, parse_lrc
+    lrc = find_lrc(folder)
+    if lrc is not None:
+        if progress:
+            progress(0.88, f"reading lyrics from {lrc.name}")
+        try:
+            doc = parse_lrc(lrc, result.duration)
+            result.lyrics = doc.lines
+            result.meta["lyrics_source"] = str(lrc)
+            if doc.meta:
+                result.meta["lyrics_meta"] = doc.meta
+        except Exception as e:
+            result.meta["lyrics_error"] = f"{type(e).__name__}: {e}"
 
     if progress:
         progress(0.9, "writing analysis")
@@ -159,6 +205,9 @@ def analyze_song(song_id: str, backend: str | None = None,
         "duration": result.duration,
         "n_sections": len(result.sections),
         "n_chords": len(result.chords),
+        "n_lyric_lines": len(result.lyrics),
+        "sections_authored": bool(result.meta.get("sections_authored")),
+        "chords_authored": bool(result.meta.get("chords_authored")),
         "backend": result.backend,
         "analysis_path": str(out),
     }
