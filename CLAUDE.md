@@ -85,17 +85,50 @@ Deliberately unfinished:
   It needs a real `templates/Template.als` to clone track/clip layout
   from. It refuses rather than emitting a plausible-but-wrong set.
 
+## Decided (2026-09-17)
+
+Four decisions that change the shape of the project. Full reasoning in
+docs/template-spec.md.
+
+- **Target is AbleSet**, not a bare Live set. The template carries a
+  fixed track layout — Sections, Measures, four `+LYRICS` views, Cue,
+  Click, Lights, stems, Tempo — and the generator writes into it. See
+  docs/template-spec.md §2.
+- **Tempo comes from Lead clips, not Main-track automation.** One warped
+  silent audio clip per song on a `Tempo` track, switched to Lead, at the
+  song's BPM (Live 12 manual §9.1.4). The Tempo track must be the
+  bottom-most track — when several clips lead, the lowest track wins.
+- **The builder runs in the browser.** A `.als` is gzipped XML, so it
+  needs no server; AbleSet's own generators do exactly this, cloning a
+  prototype clip out of a bundled template. `frontend/src/builder/` is
+  the product; `backend/abletonhelper/analysis/` is an optional local
+  tool for songs nobody has marked up. Deploying to DigitalOcean.
+- **The rig is a Mac; development is on Windows.** So the project-folder
+  export with relative sample paths is required now, not "before this
+  could be hosted". A generated `.als` with absolute Windows paths is
+  unopenable on the rig.
+
+Division of labour with the sibling repo `railchordchartapp`: that app
+owns charts (`Song`, transposition, gig view, PDF); this one owns DAW
+files (`.als`, `.mid`, tempo maps, locators). Chart JSON is the contract
+between them.
+
 ## Next
 
-1. Add `templates/Template.als`, run `abletonhelper inspect` on it, and
-   finish the builder placement pass against the measured layout.
-2. allin1 is now optional, not needed: hand-marked sections beat what it
+1. Add `templates/Template.als` (built on the Mac — docs/template-spec.md
+   §4), run `abletonhelper inspect` on it, and finish the builder
+   placement pass against the measured layout. **Everything is blocked on
+   this.**
+2. Extend `als/inspect.py` to read MIDI note events and clip names, so an
+   existing `.als` yields sections + chords + lyrics. The builder needs
+   the same parsing, so this is not a detour.
+3. Project-folder export: emit an Ableton Project folder as a zip, with
+   relative sample paths. See docs/architecture.md.
+4. `song.txt` from a Logic MIDI export — tempo, meter, key, markers and
+   chords are all in the file; the missing link is seconds→bars, and the
+   tempo map needed for it is already parsed in `analysis/midi_chords.py`.
+5. allin1 is optional, not needed: hand-marked sections beat what it
    would detect. Only worth installing for songs nobody will mark up.
-3. Setlist -> arrangement: section markers become Live locators, and
-   chord spans become a chord lane. Rendering choice is open — see
-   docs/chords.md.
-4. Project-folder export with relative sample paths — required before
-   this can ever be hosted. See docs/architecture.md.
 
 ## Commands
 
