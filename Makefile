@@ -1,4 +1,7 @@
-PY := PYTHONPATH=backend python3
+# Override PYBIN when the interpreter isn't on PATH as `python3` — on
+# Windows that's `make check PYBIN=.venv/Scripts/python.exe`.
+PYBIN ?= python3
+PY := PYTHONPATH=backend $(PYBIN)
 
 .PHONY: dev api serve ui check test clean
 
@@ -23,6 +26,7 @@ check:
 	$(PY) -c "import abletonhelper.main, abletonhelper.cli; print('backend imports ok')"
 	$(PY) -m abletonhelper.cli backends
 	cd frontend && npm run build
+	cd frontend && npm test
 	$(PY) -m pytest tests -q
 
 test:
